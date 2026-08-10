@@ -16,7 +16,7 @@ interface Env {
 
 interface RLState { c: number; t: number; }
 
-function sanitize(s: string | null | undefined, max = 2000): string {
+export function sanitize(s: string | null | undefined, max = 2000): string {
   if (!s) return '';
   return s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim().slice(0, max);
 }
@@ -61,12 +61,30 @@ function cors(): Response {
   });
 }
 
+// Constant-time comparison: a plain `===` on a secret leaks its length and
+// prefix-match progress through response timing. Compare fixed-length
+// buffers so elapsed time is independent of where (or whether) the values
+// diverge.
+export function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const bufA = enc.encode(a);
+  const bufB = enc.encode(b);
+  const len = Math.max(bufA.length, bufB.length, 1);
+  const padA = new Uint8Array(len);
+  const padB = new Uint8Array(len);
+  padA.set(bufA);
+  padB.set(bufB);
+  let diff = bufA.length ^ bufB.length;
+  for (let i = 0; i < len; i++) diff |= padA[i] ^ padB[i];
+  return diff === 0;
+}
+
 function authOk(req: Request, env: Env): boolean {
   const apiKey = req.headers.get('X-Echo-API-Key') || '';
   const bearer = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
   const expected = env.ECHO_API_KEY;
   if (!expected) return false;
-  return apiKey === expected || bearer === expected;
+  return (!!apiKey && timingSafeEqual(apiKey, expected)) || (!!bearer && timingSafeEqual(bearer, expected));
 }
 
 function tid(req: Request): string {
@@ -87,7 +105,7 @@ async function rateLimit(env: Env, key: string, max: number, windowSec: number):
   return current <= max;
 }
 
-function ipHash(ip: string): string {
+export function ipHash(ip: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < ip.length; i++) { h ^= ip.charCodeAt(i); h = Math.imul(h, 0x01000193); }
   return (h >>> 0).toString(36);
@@ -376,6 +394,12 @@ ${status === 'approved' ? `<p>Your referral code: <strong>${refCode}</strong></p
     if (m === 'GET' && p.startsWith('/dashboard/')) {
       const refCode = p.split('/')[2];
       if (!refCode) return json({ error: 'Missing ref code' }, 400);
+
+      // Rate limit: this endpoint is keyed only by an unauthenticated ref
+      // code and returns an affiliate's PII and financial balances, so an
+      // unlimited request rate would let an attacker brute-force valid
+      // codes and enumerate affiliate data.
+      if (!(await rateLimit(env, `dash:${ip}`, 30, 60))) return json({ error: 'Rate limited' }, 429);
 
       const affiliate = await env.DB.prepare('SELECT * FROM affiliates WHERE ref_code = ?').bind(refCode).first();
       if (!affiliate) return json({ error: 'Affiliate not found' }, 404);

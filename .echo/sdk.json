@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "name": "echo-affiliate",
+  "capabilities": [
+    "echo.affiliate.affiliates.list",
+    "echo.affiliate.analytics.leaderboard",
+    "echo.affiliate.analytics.overview",
+    "echo.affiliate.apply",
+    "echo.affiliate.conversions.list",
+    "echo.affiliate.convert",
+    "echo.affiliate.health",
+    "echo.affiliate.links.create",
+    "echo.affiliate.maintenance.rollup",
+    "echo.affiliate.payouts.generate",
+    "echo.affiliate.programs.create",
+    "echo.affiliate.programs.list"
+  ],
+  "entrypoints": ["scripts/certforge_journey.py"],
+  "data_classification": "restricted",
+  "network": "none"
+}
